@@ -1,0 +1,343 @@
+---
+title: "Spatial learning and individual differences - constrast coding"
+
+date: 07-20-2021
+output: 
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: false
+    toc_depth: 4
+    toc_float: 
+      collapsed: false
+    font_adjustment: +1
+    theme: readable
+    code_download: TRUE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(message = FALSE)
+library(lme4)
+library(lmerTest)
+library(car)
+library(stargazer)
+library(sjPlot)
+library(tidyr)
+library(stringi)
+library(afex)
+library(tidyverse)
+library(ggeffects)
+library(patchwork)
+library(interactions)
+```
+
+
+### Data cleaning and readin
+First, read in data & clean it
+```{r}
+routedir <- read_csv("correctRate.csv")
+routedir$CorrectDirection_percent <- routedir$isCorrectDirection/7
+corsi <- read_csv("corsi_score.csv")
+names(corsi)[1] <- "PartID" #change first column name in corsi file to have capitalized PartID name to match other files
+dprime <- read_csv("dprime_adjusted.csv")
+dprime.short <- dprime[,c("PartID" ,"mapLMs" ,"isCorrectSeen_hit", "isCorrectSeen_fa",  "dprime"   )]
+indiv <- read_csv("test_scores.csv")
+jrd <- read_csv("jrd.csv")
+
+alldat <- left_join(routedir, dprime.short, by=c("PartID", "mapLMs")) %>%
+  left_join(indiv, by="PartID") %>%
+  left_join(corsi, by="PartID")
+
+#center WM span
+alldat <- alldat %>%
+  mutate(hard_span_c = hard_span - mean(hard_span)) %>%#center working memory span to aid interpretation of main effects in interaction models - now 0 is equal to the sample average working memory span 
+  mutate(mapLMs = as.factor(mapLMs))
+
+#alldat <- alldat %>%
+#  mutate(medium_span_c = medium_span - mean(medium_span)) %>%#center working memory span to aid interpretation of main effects in interaction models - now 0 is equal to the sample average working memory span 
+#  mutate(mapLMs = as.factor(mapLMs))
+
+#center ptsot
+alldat <- alldat %>%
+  mutate(ptsot_error_c = ptsot_error - mean(ptsot_error)) 
+
+#center sbsod
+alldat <- alldat %>%
+  mutate(sbsod_c = sbsodScore - mean(sbsodScore)) 
+
+
+jrd.all <- left_join( jrd, corsi, by=c("PartID"))  %>%
+  left_join(indiv, by="PartID")
+
+jrd.all <- jrd.all %>%
+  mutate(hard_span_c = hard_span - mean(hard_span)) %>%#center working memory span to aid interpretation of main effects in interaction models - now 0 is equal to the sample average working memory span 
+  mutate(mapLMs = as.factor(mapLMs))
+
+#center ptsot
+jrd.all <- jrd.all %>%
+  mutate(ptsot_error_c = ptsot_error - mean(ptsot_error)) 
+
+#center sbsod
+jrd.all <- jrd.all %>%
+  mutate(sbsod_c = sbsodScore - mean(sbsodScore)) 
+
+```
+
+
+
+### Model 1: Interaction between working memory capacity and landmark density
+
+
+#### Models and visualizing model results
+
+Do the contrast coding
+```{r}
+library(MASS)
+#useful page: https://stats.stackexchange.com/questions/79315/specifying-contrasts-for-lme-in-3x3-repeated-measures-design
+
+#to get contrasts for n groups
+cst1 <- cbind(c(-1,1,0), c(-1,0,1)) #3v5, 3v7.         
+t(ginv(cst1)) #get contrasts that you need for the model. 
+
+cst2 <- cbind(c(-1,1,0), c(0,-1,1)) #3v5 , 5v7
+t(ginv(cst2)) #get contrasts that you need for the 2nd model. 
+
+alldat <- alldat %>%
+  mutate(mapLMs5v3 = case_when(
+  mapLMs == 3 ~ -0.3333333,
+  mapLMs == 5 ~ 0.6666667,
+  mapLMs == 7 ~ -0.3333333
+),
+mapLMs7v3 = case_when(
+  mapLMs == 3 ~ -0.3333333,
+  mapLMs == 5 ~ -0.3333333,
+  mapLMs == 7 ~ 0.6666667
+),
+mapLMs5v3_2 = case_when(
+  mapLMs == 3 ~ -0.6666667,
+  mapLMs == 5 ~ 0.3333333,
+  mapLMs == 7 ~ 0.3333333
+),
+mapLMs5v7 = case_when(
+  mapLMs == 3 ~ -0.3333333,
+  mapLMs == 5 ~ -0.3333333,
+  mapLMs == 7 ~ 0.6666667
+)
+)
+
+#constrast coding for jrd
+jrd.all <- jrd.all %>%
+  mutate(mapLMs5v3 = case_when(
+  mapLMs == 3 ~ -0.3333333,
+  mapLMs == 5 ~ 0.6666667,
+  mapLMs == 7 ~ -0.3333333
+),
+mapLMs7v3 = case_when(
+  mapLMs == 3 ~ -0.3333333,
+  mapLMs == 5 ~ -0.3333333,
+  mapLMs == 7 ~ 0.6666667
+),
+mapLMs5v3_2 = case_when(
+  mapLMs == 3 ~ -0.6666667,
+  mapLMs == 5 ~ 0.3333333,
+  mapLMs == 7 ~ 0.3333333
+),
+mapLMs5v7 = case_when(
+  mapLMs == 3 ~ -0.3333333,
+  mapLMs == 5 ~ -0.3333333,
+  mapLMs == 7 ~ 0.6666667
+)
+)
+```
+
+## Models: main effect of landmark density on dprime, direction and jrd - in the paper
+
+
+```{r}
+#dprime
+model.wm_dprime.1 = lmer(dprime ~ mapLMs5v3*hard_span_c + hard_span_c*mapLMs7v3 + sbsod_c +
+                    (1 | PartID), #random effects
+                  data = alldat) 
+summary(model.wm_dprime.1)
+sjPlot::tab_model(model.wm_dprime.1) #model results
+
+model.wm_dprime.2 = lmer(dprime ~ mapLMs5v3_2*hard_span_c + hard_span_c*mapLMs5v7 + sbsod_c + 
+                    (1 | PartID), #random effects
+                  data = alldat) 
+summary(model.wm_dprime.2)
+sjPlot::tab_model(model.wm_dprime.2) #model results
+
+
+#routedirection
+model.wm_direction.1 = lmer(CorrectDirection_percent ~ mapLMs5v3*hard_span_c + hard_span_c*mapLMs7v3 + sbsod_c +
+                    (1 | PartID), #random effects
+                  data = alldat) 
+summary(model.wm_direction.1)
+sjPlot::tab_model(model.wm_direction.1) #model results
+
+model.wm_direction.2 = lmer(CorrectDirection_percent ~ mapLMs5v3_2*hard_span_c + hard_span_c*mapLMs5v7 + sbsod_c + 
+                    (1 | PartID), #random effects
+                  data = alldat) 
+summary(model.wm_direction.2)
+sjPlot::tab_model(model.wm_direction.2) #model results
+
+
+#JRD
+model.wm_jrd.1 = lmer(ResponsErrorAbs ~ mapLMs5v3*hard_span_c + hard_span_c*mapLMs7v3 + sbsod_c +
+                    (1 | PartID), #random effects
+                  data = jrd.all) 
+summary(model.wm_jrd.1)
+sjPlot::tab_model(model.wm_jrd.1) #model results
+
+model.wm_jrd.2 = lmer(ResponsErrorAbs ~ mapLMs5v3_2*hard_span_c + hard_span_c*mapLMs5v7 + sbsod_c + 
+                    (1| PartID), #random effects
+                  data = jrd.all)
+summary(model.wm_jrd.2)
+sjPlot::tab_model(model.wm_jrd.2) #model results
+
+```
+
+
+## visualizing data. plot in paper
+
+
+## visualizing data.--raincloud plot in the thesis
+#### https://rpubs.com/rana2hin/raincloud#:~:text=The%20Raincloud%20Plot%20is%20a,indicator%20that%20groups%20may%20exist).
+
+```{r rainclound_plot}
+library(tidyverse)
+library(tidyquant)
+library(ggdist)
+library(ggthemes)
+
+#data: alldata
+
+#dprime 
+
+
+alldat %>% 
+  filter(mapLMs %in% c(3, 5, 7)) %>% 
+  ggplot(aes(x = mapLMs, y = dprime, fill = mapLMs)) +
+
+  # add half-violin from {ggdist} package
+  stat_halfeye(
+    # adjust bandwidth
+    adjust = 0.5,
+    # move to the right
+    justification = -0.2,
+    # remove the slub interval
+    .width = 0,
+    point_colour = NA
+  ) +
+  stat_summary(geom = "point", fun = mean, size=8, color = c("#999999", "#E69F00", "#56B4E9"))  + #darkviolet
+   stat_summary(geom = "linerange", fun.data = mean_cl_normal, color = c("#999999", "#E69F00", "#56B4E9")) +
+  # Themes and Labels
+    scale_fill_manual(values=c("#999999", "#E69F00", "#56B4E9"))+
+  scale_fill_manual(values=c("#999999", "#E69F00", "#56B4E9"))+
+   theme_tq() +
+  labs(
+    title = "",
+    x = "",
+    y = "",
+    fill = ""
+  ) + 
+ coord_cartesian(ylim=c(0,3.5))+
+  theme_classic(base_size=20)
+
+ggsave("dprime_rainclound.png", width=8, height=8)
+
+#direction
+alldat %>% 
+  filter(mapLMs %in% c(3, 5, 7)) %>% 
+  ggplot(aes(x = mapLMs, y = CorrectDirection_percent*100, fill = mapLMs)) +
+
+  # add half-violin from {ggdist} package
+  stat_halfeye(
+    # adjust bandwidth
+    adjust = 0.5,
+    # move to the right
+    justification = -0.2,
+    # remove the slub interval
+    .width = 0,
+    point_colour = NA
+  ) +
+  stat_summary(geom = "point", fun = mean, size=8, color = c("#999999", "#E69F00", "#56B4E9"))  + #darkviolet
+   stat_summary(geom = "linerange", fun.data = mean_cl_normal, color = c("#999999", "#E69F00", "#56B4E9")) +
+  # Themes and Labels
+    scale_fill_manual(values=c("#999999", "#E69F00", "#56B4E9"))+
+  scale_fill_manual(values=c("#999999", "#E69F00", "#56B4E9"))+
+   theme_tq() +
+  labs(
+    title = "",
+    x = "",
+    y = "",
+    fill = ""
+  ) + 
+ coord_cartesian(ylim=c(0,100))+
+  theme_classic(base_size=20)
+
+ggsave("routeDirect_rainclound.png", width=8, height=8)
+
+
+#jrd
+jrd.all %>% 
+  filter(mapLMs %in% c(3, 5, 7)) %>% 
+  ggplot(aes(x = mapLMs, y = ResponsErrorAbs, fill = mapLMs)) +
+
+  # add half-violin from {ggdist} package
+  stat_halfeye(
+    # adjust bandwidth
+    adjust = 0.5,
+    # move to the right
+    justification = -0.2,
+    # remove the slub interval
+    .width = 0,
+    point_colour = NA
+  ) +
+  stat_summary(geom = "point", fun = mean, size=8, color = c("#999999", "#E69F00", "#56B4E9"))  + #darkviolet
+   stat_summary(geom = "linerange", fun.data = mean_cl_normal, color = c("#999999", "#E69F00", "#56B4E9")) +
+  # Themes and Labels
+    scale_fill_manual(values=c("#999999", "#E69F00", "#56B4E9"))+
+  scale_fill_manual(values=c("#999999", "#E69F00", "#56B4E9"))+
+  labs(
+    title = "",
+    x = "",
+    y = "",
+    fill = ""
+  ) +
+   theme_tq() +
+  theme_classic(base_size=20) + 
+  ylim(40,110)
+
+ggsave("jrd_rainclound.png", width=8, height=8)
+
+#create legend
+alldat %>% 
+  filter(mapLMs %in% c(3, 5, 7)) %>% 
+  ggplot(aes(x = mapLMs, y = dprime, fill = mapLMs)) +
+
+  # add half-violin from {ggdist} package
+  stat_halfeye(
+    # adjust bandwidth
+    adjust = 0.5,
+    # move to the right
+    justification = -0.2,
+    # remove the slub interval
+    .width = 0,
+    point_colour = NA
+  ) +
+  # Themes and Labels
+    scale_fill_manual(values=c("#999999", "#E69F00", "#56B4E9"))+
+  scale_fill_manual(values=c("#999999", "#E69F00", "#56B4E9"))+
+   theme_tq() +
+  labs(
+    title = "",
+    x = "",
+    y = "",
+    fill = ""
+  ) + 
+ coord_cartesian(ylim=c(0,3.5))+
+  theme_classic(base_size=20)
+ggsave("legend_rainclound.png", width=8, height=8)
+```
