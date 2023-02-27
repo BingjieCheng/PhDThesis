@@ -234,3 +234,46 @@ for n=1:length(allfilesVR)
 end   
 
 
+%% pop_autorej() - perform automatic artifact epoch detection and rejection 
+
+clear all;
+eeglab;
+
+cd 'D:\EEG_2022\mapEpochs_delay_corr';
+allfilesVR = dir('*mapEpochs.set');
+%rmepochs_table = table;
+%tablePath = 'E:\Berlin\2Hz_strictChanRemov_FCz\noDelay_Corr\epochs_mapOnset_autorej\autorej_500_3_20';
+allepochs = dir('*.set');
+
+rmepoch_M = zeros(length(allepochs),8)
+for n=1:length(allepochs) 
+     loadName = allepochs(n).name;
+     
+     EEG = pop_loadset('filename',loadName);
+     
+    [EEG, rmepochs] = pop_autorej( EEG, 'threshold', 80, 'startprob', 3, 'maxrej', 10, 'eegplot', 'off', 'nogui', 'on'); %5 iterations
+    EEG.rmepochs = rmepochs;
+    %remove epochs from EEG
+    %EEG = pop_selectevent( EEG, 'deleteevents','off','deleteepochs','on','invertepochs','off');
+    %EEG = pop_rejepoch( EEG, rmepochs ,0);
+    
+    EEG = eeg_checkset( EEG );
+
+    %save datasets
+    
+    dataName = [loadName(1:end-4) '_epochAutorej.set']
+    EEG = pop_saveset( EEG, 'filename',dataName, 'filepath', 'D:\EEG_2022\mapEpochs_delay_corr_rej_80_3_10');
+    
+    %partID_city_nr = loadName(1:12);
+    %criteria = {500, 3, 20};
+    % tempt = table({partID_city_nr}, rmepochs, criteria, ...
+    % 'VariableNames',{'partID_city_nr', 'rmepochs', 'criteria'});
+
+     %rmepochs_table = [rmepochs_table;tempt];
+     rmepoch_M(n, 1) = str2num(loadName(5:6)); % partID
+     rmepoch_M(n, 2) = str2num(loadName(12)); %city number
+     rmepoch_M(n, 3:(length(rmepochs)+2)) = rmepochs;
+end
+
+writematrix(rmepoch_M,'rmepoch_M_80_3_10_map.csv') ;
+%writetable(fcz_table,[rmepochs_table 'rmepochs_autorej_500_3_20.csv'],'Delimiter',',');
